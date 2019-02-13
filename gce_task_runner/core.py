@@ -66,9 +66,23 @@ def _get_metadata(key):
     return None
 
 
-def notify_completion(project, topic='manager', error=None):
+def _get_project():
+    try:
+        res = requests.get(
+            "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+            headers={"Metadata-Flavor": "Google"})
+    except Exception:
+        pass
+    else:
+        if res.status_code == 200:
+            return res.text
+    return None
+
+
+def notify_completion(project=None, topic='manager', error=None):
     """タスクの完了を通知する."""
     try:
+        project = project or _get_project()
         _id = _get_metadata('instance-id')
         if _id:
             publisher = pubsub.PublishClient(project)
