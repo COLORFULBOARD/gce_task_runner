@@ -23,11 +23,12 @@
 
 ### マネージャー
 
-[sample_manager.py](./sample_manager.py)を確認してください。
+[sample_manager.py](./sample_manager.py)を確認してください。  
+PubSubを使うので**あらかじめトピックを作成**しておいてください。作成したトピック名はスクリプト内で使います。
 
 ### ランナー
 
-`gce_task_runner.notify_completion()`を呼び出せばOKです。
-が、そのためにはこのライブラリをインストールしておく必要があります。
+`gce_task_runner.notify_completion()`を呼び出せばOKです。  
+が、そのためにはこのライブラリをインストールしておく必要があります。  
 なのであらかじめDockerイメージを作って置いて、起動スクリプトではそれを実行するだけにしておくと楽です。
 
