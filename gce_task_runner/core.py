@@ -1,5 +1,3 @@
-"""Coreのクラス、関数定義."""
-
 import logging
 import time
 import uuid

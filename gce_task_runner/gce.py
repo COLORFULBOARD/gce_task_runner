@@ -1,5 +1,3 @@
-"""インスタンス情報."""
-
 import logging
 import time
 from enum import Enum
