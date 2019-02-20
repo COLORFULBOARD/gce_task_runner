@@ -33,7 +33,7 @@ class Parameter:
                  instances=1,
                  image='projects/debian-cloud/global/images/debian-9-stretch-v20180716',
                  machine_type='n1-standard-1',
-                 zone='asia-northeast1',
+                 zone='asia-northeast1-b',
                  disk_size=20,
                  metas=None,
                  gpu_info=None,
