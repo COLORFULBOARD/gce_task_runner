@@ -29,7 +29,7 @@ def main():
             )
         ),
     )
-    run(tasks, topic=TOPIC, subsctiption=SUBSCRIPTION)
+    run(tasks, topic=TOPIC, subscription=SUBSCRIPTION)
 
 
 if __name__ == '__main__':
