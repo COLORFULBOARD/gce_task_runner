@@ -15,6 +15,7 @@ def main():
             'requests >= 2.21.0',
             'google-api-python-client >= 1.7.8',
             'google-cloud-pubsub >= 0.39.1',
+            'asynconsumer == 1.0.2'
         ],
         extras_require={
         },

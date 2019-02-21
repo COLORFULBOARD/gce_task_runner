@@ -3,6 +3,7 @@ import time
 import uuid
 
 import requests
+from asynconsumer import async_run
 
 from . import gce, pubsub
 
@@ -135,7 +136,8 @@ def _run_task(subscriber, task, subscription):
                 nonlocal is_error
                 is_error = True
                 error_msg = message.attributes['error']
-                logger.info('Error occurred while executing the task({}): {}'.format(task.name, error_msg))
+                logger.info(
+                    'Error occurred while executing the task({}): {}'.format(task.name, error_msg))
 
             # インスタンスの削除
             logger.info('instance {} is finished'.format(instance_id))
@@ -172,9 +174,9 @@ def _create_gce_clients(task):
     for i in range(param.instances):
         _id = str(uuid.uuid4())
         metas = [
-            {'key': 'instance-id', 'value': _id},
-            {'key': 'instance-number', 'value': i}
-        ] + param.metas[i]
+                    {'key': 'instance-id', 'value': _id},
+                    {'key': 'instance-number', 'value': i}
+                ] + param.metas[i]
         # googleapiclientがImportErrorをたくさん出すので抑制
         logging.disable(logging.FATAL)
         clients[_id] = gce.Client(
@@ -193,9 +195,12 @@ def _create_gce_clients(task):
         )
         logging.disable(logging.NOTSET)
 
-    # インスタンスの作成
+    # 10台ずつ並列でインスタンスの作成
     logger.info('create instances')
-    for client in clients.values():
-        client.create()
+    async_run(clients.values(), _create, concurrency=10, sleep=0)
 
     return clients
+
+
+def _create(instance):
+    instance.create()
