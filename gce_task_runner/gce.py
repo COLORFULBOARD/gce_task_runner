@@ -68,8 +68,11 @@ class Client:
 
     def delete(self):
         """インスタンス削除."""
-        operation = self.delete_async()
-        return self.wait_for_operation(operation['name'])
+        try:
+            operation = self.delete_async()
+            return self.wait_for_operation(operation['name'])
+        except Exception:
+            return {'status': "DONE"}
 
     def delete_async(self):
         """インスタンス削除(非同期)."""
@@ -80,10 +83,10 @@ class Client:
                 instance=self.instance
             ).execute()
         except HttpError as e:
-            if 'Not Found' in str(e):
+            if 'HttpError 404' in str(e):
                 logger.info("{} has been deleted".format(self.instance))
                 # すでに存在しない場合は正常時と同じ型のダミーを返す
-                return {'status': "DONE"}
+                return {'error': str(e)}
             logger.warning('error: {}'.format(e))
             raise
 
