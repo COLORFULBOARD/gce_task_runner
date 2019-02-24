@@ -141,11 +141,8 @@ def _run_task(subscriber, task, subscription):
 
             # インスタンスの削除
             logger.info('instance {} is finished'.format(instance_id))
-            clients[instance_id].delete()
-            try:
-                del clients[instance_id]
-            except KeyError:
-                pass
+            client = clients.pop(instance_id)
+            client.delete()
             logger.info('instance {} is terminated'.format(instance_id))
 
     def check():
