@@ -109,9 +109,9 @@ def run(tasks, topic='manager', subscription='manager', project=None):
 
     with pubsub.context(project, topic, subscription) as subscriber:
         for task in tasks:
-            succeeded = _run_task(subscriber, task, subscription)
-            if not succeeded:
-                break
+            error = _run_task(subscriber, task, subscription)
+            if error:
+                return error
 
 
 def _run_task(subscriber, task, subscription):
@@ -125,6 +125,7 @@ def _run_task(subscriber, task, subscription):
                      ' even if the task will not be completed').format(task.timeout))
 
     is_error = False
+    error_msg = None
 
     # インスタンスからの完了通知を受け取るまで待機
     def callback(message):
@@ -134,6 +135,7 @@ def _run_task(subscriber, task, subscription):
             if 'error' in message.attributes:
                 # エンクロージングスコープの変数に再代入するための宣言
                 nonlocal is_error
+                nonlocal error_msg
                 is_error = True
                 error_msg = message.attributes['error']
                 logger.info(
@@ -160,10 +162,10 @@ def _run_task(subscriber, task, subscription):
 
     if is_error:
         # エラーが発生した場合は後続のTaskを実行せず終了する
-        return False
+        logger.info('error raised in {}: {}'.format(task.name, error_msg))
+        return error_msg
 
     logger.info('finish to {}'.format(task.name))
-    return True
 
 
 def _create_gce_clients(task):
