@@ -111,7 +111,7 @@ def run(tasks, topic='manager', subscription='manager', project=None):
         for task in tasks:
             error = _run_task(subscriber, task, subscription)
             if error:
-                return error
+                return task.name, error
 
 
 def _run_task(subscriber, task, subscription):
