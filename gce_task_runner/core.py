@@ -162,7 +162,6 @@ def _run_task(subscriber, task, subscription):
 
     if is_error:
         # エラーが発生した場合は後続のTaskを実行せず終了する
-        logger.info('error raised in {}: {}'.format(task.name, error_msg))
         return error_msg
 
     logger.info('finish to {}'.format(task.name))
