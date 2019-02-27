@@ -130,7 +130,8 @@ def _run_task(subscriber, task, subscription):
     # インスタンスからの完了通知を受け取るまで待機
     def callback(message):
         instance_id = message.data.decode('utf-8')
-        if instance_id in clients:
+        client = clients.pop(instance_id, None)
+        if client:
             # errorメッセージが含まれていたらエラーとして処理する、それ以外は正常終了扱い
             if 'error' in message.attributes:
                 # エンクロージングスコープの変数に再代入するための宣言
@@ -140,10 +141,8 @@ def _run_task(subscriber, task, subscription):
                 error_msg = message.attributes['error']
                 logger.info(
                     'Error occurred while executing the task({}): {}'.format(task.name, error_msg))
-
             # インスタンスの削除
             logger.info('instance {} is finished'.format(instance_id))
-            client = clients.pop(instance_id)
             client.delete()
             logger.info('instance {} is terminated'.format(instance_id))
 
