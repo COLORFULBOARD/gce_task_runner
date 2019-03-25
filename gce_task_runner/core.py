@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from functools import partial
 
 import requests
 from asynconsumer import async_run
@@ -17,11 +18,13 @@ class Task:
                  name,
                  project,
                  parameter,
-                 timeout=0):  # noqa: D107
+                 timeout=0,
+                 retry_quota_exceeded=False):  # noqa: D107
         self.name = name
         self.project = project
         self.parameter = parameter
         self.timeout = timeout
+        self.retry_quota_exceeded = retry_quota_exceeded
 
 
 class Parameter:
@@ -39,7 +42,8 @@ class Parameter:
                  metas=None,
                  gpu_info=None,
                  minCpuPlatform=None,
-                 preemptible=False):  # noqa: D107
+                 preemptible=False,
+                 retry_quota_exceeded=False):  # noqa: D107
         self.instance_name = instance_name
         self.startup_script_url = startup_script_url
         self.shutdown_script_url = shutdown_script_url
@@ -195,12 +199,23 @@ def _create_gce_clients(task):
         )
         logging.disable(logging.NOTSET)
 
-    # 10台ずつ並列でインスタンスの作成
+    # 100台ずつ並列でインスタンスの作成
     logger.info('create instances')
-    async_run(clients.values(), _create, concurrency=10, sleep=0)
+    async_run(clients.values(), partial(_create, task.retry_quota_exceeded), concurrency=100,
+              sleep=0)
 
     return clients
 
 
-def _create(instance):
-    instance.create()
+def _create(retry_quota_exceeded, instance):
+    while True:
+        try:
+            instance.create()
+        except Exception as e:
+            if retry_quota_exceeded and 'quota' in str(e) and 'exceeded' in str(e):
+                # リトライする
+                logger.info('Retry because quota exceeded')
+                continue
+            else:
+                # リトライ不要であればエラーにして終了
+                raise
