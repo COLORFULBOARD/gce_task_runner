@@ -62,8 +62,7 @@ class Client:
                 zone=self.zone,
                 body=self.config,
             ).execute()
-        except HttpError as e:
-            logger.warning('error: {}'.format(e))
+        except HttpError:
             raise
 
     def delete(self):
@@ -167,7 +166,7 @@ class Client:
 
     def wait_for_operation(self, operation):
         """ジョブの待機. ポーリングによって実現."""
-        logger.info('Waiting for operation to finish...')
+        logger.debug(f'Waiting for {operation} to finish...')
         while True:
             result = self.service.zoneOperations().get(
                 project=self.project,
@@ -175,9 +174,8 @@ class Client:
                 operation=operation).execute()
 
             if result['status'] == 'DONE':
-                logger.info("done.")
+                logger.debug("done.")
                 if 'error' in result:
-                    logger.warning('{}'.format(result['error']))
                     raise Exception(result['error'])
                 return result
             time.sleep(1)

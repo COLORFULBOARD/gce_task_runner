@@ -1,13 +1,27 @@
 import logging
+import threading
 import time
 import uuid
+from functools import partial
 
 import requests
 from asynconsumer import async_run
 
 from . import gce, pubsub
 
+logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
+
+_LOCK = threading.Lock()
+
+# 稼働中GCEインスタンスの辞書。{_id: (instance, タイムリミット)}
+_INSTANCES = {}
+
+# 未終了GCEインスタンス数
+_INSTANCE_SIZE = 0
+
+# GCEインスタンスから通知されたエラー
+_ERRORS = []
 
 
 class Task:
@@ -17,11 +31,13 @@ class Task:
                  name,
                  project,
                  parameter,
-                 timeout=0):  # noqa: D107
+                 timeout=0,
+                 retry_quota_exceeded=False):  # noqa: D107
         self.name = name
         self.project = project
         self.parameter = parameter
         self.timeout = timeout
+        self.retry_quota_exceeded = retry_quota_exceeded
 
 
 class Parameter:
@@ -54,6 +70,56 @@ class Parameter:
         self.preemptible = preemptible
 
 
+def notify_completion(project=None, topic='manager', error=None):
+    """タスクの完了を通知する."""
+    try:
+        project = project or _get_project()
+        _id = _get_metadata('instance-id')
+        if _id:
+            publisher = pubsub.PublishClient(project)
+            try:
+                if error:
+                    publisher.publish(topic, _id, error=str(error))
+                else:
+                    publisher.publish(topic, _id)
+                logger.info('notify_completion: {}'.format(_id))
+            except Exception as e:
+                logger.info('notify_completion is not completed: {}'.format(e))
+        else:
+            logger.info('notify_completion is not sent.')
+    except Exception:
+        # finally節で実行されることを想定
+        pass
+
+
+def run(tasks):
+    """タスクリストを実行する."""
+    for task in tasks:
+        error = _run_task(task)
+        if error:
+            return task.name, error
+
+
+def _add_instance(_id, instance, timeout=0):
+    """_INSTANCESにGCEインスタンスを格納する"""
+    with _LOCK:
+        limit = timeout + time.time() if timeout else None
+        _INSTANCES[_id] = (instance, limit)
+
+
+def _pop_instance(_id):
+    """_INSTANCESに格納されたGCEインスタンスを取り出す"""
+    with _LOCK:
+        return _INSTANCES.pop(_id, (None, None))
+
+
+def _get_time_overs():
+    """_INSTANCESに格納された期限切れGCEインスタンスを全て取り出す"""
+    with _LOCK:
+        ids = [_id for _id, (_, limit) in _INSTANCES.items() if limit and limit < time.time()]
+        return [(_id, _INSTANCES.pop(_id)) for _id in ids]
+
+
 def _get_metadata(key):
     try:
         res = requests.get(
@@ -80,127 +146,125 @@ def _get_project():
     return None
 
 
-def notify_completion(project=None, topic='manager', error=None):
-    """タスクの完了を通知する."""
-    try:
-        project = project or _get_project()
-        _id = _get_metadata('instance-id')
-        if _id:
-            publisher = pubsub.PublishClient(project)
-            try:
-                if error:
-                    publisher.publish(topic, _id, error=str(error))
-                else:
-                    publisher.publish(topic, _id)
-                logger.info('notify_completion: {}'.format(_id))
-            except Exception as e:
-                logger.info('notify_completion was not completed: {}'.format(e))
-        else:
-            logger.info('notify_completion is not sent.')
-    except Exception:
-        # finally節で実行されることを想定
-        pass
-
-
-def run(tasks, topic='manager', subscription='manager', project=None):
-    """タスクを実行する."""
-    if not project and tasks:
-        project = tasks[0].project
-
-    with pubsub.context(project, topic, subscription) as subscriber:
-        for task in tasks:
-            error = _run_task(subscriber, task, subscription)
-            if error:
-                return task.name, error
-
-
-def _run_task(subscriber, task, subscription):
+def _run_task(task):
+    """個別のタスクを実行する"""
     logger.info('start to {}'.format(task.name))
-    clients = _create_gce_clients(task)
-    logger.info('created instances: {}'.format(','.join(clients)))
 
-    if task.timeout:
-        limit = task.timeout + time.time()
-        logger.info(('set timer: instances will be terminated after {} sec'
-                     ' even if the task will not be completed').format(task.timeout))
+    global _INSTANCE_SIZE
+    _INSTANCE_SIZE = task.parameter.instances
 
-    is_error = False
-    error_msg = None
+    # インスタンス作成中でも完了通知を受信できるようにしておく
+    _subscribe_in_background(task)
 
-    # インスタンスからの完了通知を受け取るまで待機
-    def callback(message):
-        instance_id = message.data.decode('utf-8')
-        client = clients.pop(instance_id, None)
-        if client:
-            # errorメッセージが含まれていたらエラーとして処理する、それ以外は正常終了扱い
-            if 'error' in message.attributes:
-                # エンクロージングスコープの変数に再代入するための宣言
-                nonlocal is_error
-                nonlocal error_msg
-                is_error = True
-                error_msg = message.attributes['error']
-                logger.info(
-                    'Error occurred while executing the task({}): {}'.format(task.name, error_msg))
-            # インスタンスの削除
-            logger.info('instance {} is finished'.format(instance_id))
-            client.delete()
-            logger.info('instance {} is terminated'.format(instance_id))
+    # 100台ずつ並列でインスタンスの作成
+    async_run(range(task.parameter.instances), partial(_create_instance, task),
+              concurrency=100, sleep=0)
 
-    def check():
-        # Falseを返すとPubSubの監視を終了する
-        if task.timeout and limit < time.time():
-            logger.info('timeout!!!')
-            # 全部消す
-            for client in clients.values():
-                client.delete()
-            return False
-        return len(clients)
-
-    logger.info('waiting ...')
-    subscriber.subscribe(subscription, callback, check)
-
-    if is_error:
-        # エラーが発生した場合は後続のTaskを実行せず終了する
-        return error_msg
+    # 全台処理が終了するまで待機
+    while _INSTANCE_SIZE > 0:
+        time.sleep(5)
 
     logger.info('finish to {}'.format(task.name))
+    return _ERRORS
 
 
-def _create_gce_clients(task):
+def _subscribe_in_background(task):
+    """バックグラウンドスレッドでGCEインスタンスからの完了通知を受け取る"""
+    project = task.project
+    subscription = f"name-f{task.name.replace(' ', '-')}"
+
+    def callback(message):
+        # インスタンスからの完了通知を受け取った時の処理
+        global _INSTANCE_SIZE
+        instance_id = message.data.decode('utf-8')
+        instance, _ = _pop_instance(instance_id)
+        if instance:
+            if 'error' in message.attributes:
+                # errorメッセージが含まれていたらエラーとして処理する、それ以外は正常終了扱い
+                error_msg = message.attributes['error']
+                logger.info(
+                    'Error occurred while executing the task({}) in {}: {}'.format(
+                        task.name, instance_id, error_msg))
+                _ERRORS.append(f'{error_msg} found in {instance_id}')
+            else:
+                logger.info('instance {} is completed'.format(instance_id))
+
+            # インスタンスの削除
+            instance.delete()
+            logger.info('instance {} is terminated'.format(instance_id))
+            _INSTANCE_SIZE -= 1
+
+    def stop_callback():
+        # Trueを返すとPubSubの監視を終了する
+        global _INSTANCE_SIZE
+        if task.timeout:
+            # 時間切れのインスタンスを削除
+            for _id, (instance, _) in _get_time_overs():
+                logger.info('instance {} is timeout!!!'.format(_id))
+                instance.delete()
+                logger.info('instance {} is terminated'.format(_id))
+                _INSTANCE_SIZE -= 1
+        return _INSTANCE_SIZE == 0
+
+    thread = threading.Thread(target=_subscribe,
+                              args=(project, subscription, callback, stop_callback))
+    thread.start()
+
+
+def _subscribe(project, subscription, callback, stop_callback):
+    """サブスクライブの実行"""
+    subscriber = pubsub.SubscribeClient(project)
+    try:
+        subscriber.create_subscription('manager', subscription)
+        subscriber.subscribe(subscription, callback, stop_callback)
+    finally:
+        subscriber.delete_subscription(subscription)
+
+
+def _create_instance(task, num):
+    """GCEインスタンスを作成する
+
+    作成されたインスタンスは _INSTANCES に追加される
+    task.retry_quota_exceeded がTrueの場合はQUOTAエラー時はリトライする
+    :param task: タスク
+    :param num: タスク内でのそのインスタンスの通し番号
+    """
     param = task.parameter
-    clients = {}
-
-    # インスタンス作成の準備
-    for i in range(param.instances):
-        _id = str(uuid.uuid4())
-        metas = [
-                    {'key': 'instance-id', 'value': _id},
-                    {'key': 'instance-number', 'value': i}
-                ] + param.metas[i]
-        # googleapiclientがImportErrorをたくさん出すので抑制
-        logging.disable(logging.FATAL)
-        clients[_id] = gce.Client(
-            param.instance_name.format(i),
-            param.startup_script_url,
-            param.shutdown_script_url,
-            task.project,
-            zone=param.zone,
-            machine_type=param.machine_type,
-            image=param.image,
-            disk_size=param.disk_size,
-            metas=metas,
-            gpu_info=param.gpu_info,
-            minCpuPlatform=param.minCpuPlatform,
-            preemptible=param.preemptible,
-        )
-        logging.disable(logging.NOTSET)
-
-    # 10台ずつ並列でインスタンスの作成
-    logger.info('create instances')
-    async_run(clients.values(), _create, concurrency=10, sleep=0)
-
-    return clients
-
-
-def _create(instance):
-    instance.create()
+    _id = str(uuid.uuid4())
+    metas = [
+                {'key': 'instance-id', 'value': _id},
+                {'key': 'instance-number', 'value': num}
+            ] + param.metas[num]
+    # googleapiclientがImportErrorをたくさん出すので抑制
+    logging.disable(logging.FATAL)
+    instance = gce.Client(
+        param.instance_name.format(num),
+        param.startup_script_url,
+        param.shutdown_script_url,
+        task.project,
+        zone=param.zone,
+        machine_type=param.machine_type,
+        image=param.image,
+        disk_size=param.disk_size,
+        metas=metas,
+        gpu_info=param.gpu_info,
+        minCpuPlatform=param.minCpuPlatform,
+        preemptible=param.preemptible,
+    )
+    logging.disable(logging.NOTSET)
+    while True:
+        try:
+            instance.create()
+            logger.info(f'{param.instance_name.format(num)}({_id}) is created')
+        except Exception as e:
+            if task.retry_quota_exceeded and 'Quota' in str(e) and 'exceeded' in str(e):
+                # リトライする
+                logger.debug('Retry because quota exceeded')
+                time.sleep(30)
+                continue
+            else:
+                # リトライ不要であればエラーにして終了
+                raise
+        else:
+            _add_instance(_id, instance, task.timeout)
+            break
