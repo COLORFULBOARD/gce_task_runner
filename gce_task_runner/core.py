@@ -45,10 +45,12 @@ class Parameter:
 
     def __init__(self,
                  instance_name,
+                 startup_script=None,
+                 shutdown_script=None,
                  startup_script_url=None,
                  shutdown_script_url=None,
                  instances=1,
-                 image='projects/debian-cloud/global/images/debian-9-stretch-v20180716',
+                 image='projects/ubuntu-os-cloud/global/images/ubuntu-1804-bionic-v20190320',
                  machine_type='n1-standard-1',
                  zone='asia-northeast1-b',
                  disk_size=20,
@@ -56,8 +58,14 @@ class Parameter:
                  gpu_info=None,
                  minCpuPlatform=None,
                  preemptible=False):  # noqa: D107
+
+        if len(list(filter(lambda x: bool(x), (startup_script, startup_script_url)))) != 1:
+            raise ValueError('Set only one of startup_script and startup_script_url')
+
         self.instance_name = instance_name
+        self.startup_script = startup_script
         self.startup_script_url = startup_script_url
+        self.shutdown_script = shutdown_script
         self.shutdown_script_url = shutdown_script_url
         self.instances = instances
         self.image = image
@@ -247,7 +255,9 @@ def _create_instance(task, topic, num):
     logging.disable(logging.FATAL)
     instance = gce.Client(
         param.instance_name.format(num),
+        param.startup_script,
         param.startup_script_url,
+        param.shutdown_script,
         param.shutdown_script_url,
         task.project,
         zone=param.zone,
