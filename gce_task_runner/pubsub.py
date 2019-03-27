@@ -35,8 +35,9 @@ class SubscribeClient:
         path = self.service.subscription_path(self.project, subscription)
         return self.service.subscribe(path, callback)
 
-    def subscribe(self, subscription, callback, check, sleep=1):
+    def subscribe(self, subscription, callback, stop_callback, sleep=1):
         """通知の購読."""
+
         def _callback(message):
             r = callback(message)
             message.ack()
@@ -49,16 +50,19 @@ class SubscribeClient:
                 sys.stdout.flush()
                 time.sleep(sleep)
                 sys.stdout.write('\b')
-                if not check():
+                if stop_callback():
                     break
         finally:
             future.cancel()
 
     def delete_subscription(self, subscription):
         """サブスクリプションの削除."""
-        path = self.service.subscription_path(self.project, subscription)
-        self.service.delete_subscription(path)
-        logger.info('delete: {}'.format(path))
+        try:
+            path = self.service.subscription_path(self.project, subscription)
+            self.service.delete_subscription(path)
+            logger.info('delete: {}'.format(path))
+        except:
+            pass
 
     def create_subscription(self, topic, subscription):
         """新しいサブスクリプションの作成."""
