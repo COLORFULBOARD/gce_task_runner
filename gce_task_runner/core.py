@@ -98,7 +98,7 @@ def notify_completion(project=None, topic=None, error=None):
             logger.info('notify_completion is not sent.')
     except Exception:
         # finally節で実行されることを想定
-        pass
+        logger.info('notify_completion is not sent.')
 
 
 def run(tasks, topic='manager', subscription='manager', project=None):

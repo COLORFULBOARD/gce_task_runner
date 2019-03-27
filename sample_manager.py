@@ -1,37 +1,47 @@
 from gce_task_runner import Parameter, Task, run
 
-GCP = ''
-TOPIC = ''
-SUBSCRIPTION = ''
-
-# 起動スクリプトではnotify_completion()を呼び出し完了をmanagerに伝える
-STARTUP_SCRIPT_URL_TASK_1 = 'gs://...'
-STARTUP_SCRIPT_URL_TASK_2 = 'gs://...'
+PROJECT_ID = 'suyama-sandbox'
 
 
 def main():
     tasks = (
         Task(
             name='task 1',
-            project=GCP,
+            project=PROJECT_ID,
             parameter=Parameter(
-                instance_name='instance 1-{}',
-                startup_script_url=STARTUP_SCRIPT_URL_TASK_1,
-                instances=2,
+                instance_name='instance-1-{}',
+                startup_script="""
+                #! /bin/bash
+                echo '##################### task1 ############################'
+                apt update -y && apt upgrade -y && apt install python3-pip -y
+
+                # Must call notify_completion()
+                pip3 install git+https://github.com/COLORFULBOARD/gce_task_runner.git@dev#egg=gce-task-runner
+                python3 -c 'from gce_task_runner import notify_completion; notify_completion()'
+                """,
+                instances=3,
             )
         ),
         Task(
             name='task 2',
-            project=GCP,
+            project=PROJECT_ID,
             parameter=Parameter(
-                instance_name='instance 2',
-                startup_script_url=STARTUP_SCRIPT_URL_TASK_2,
-            )
+                instance_name='instance-2',
+                startup_script="""
+                #! /bin/bash
+                echo '##################### task2 ############################'
+                apt update -y && apt upgrade -y && apt install python3-pip -y
+
+                # Must call notify_completion()
+                pip3 install git+https://github.com/COLORFULBOARD/gce_task_runner.git@dev#egg=gce-task-runner
+                python3 -c 'from gce_task_runner import notify_completion; notify_completion()'
+                """,
+            ),
+            timeout=30,
         ),
     )
-    run(tasks, topic=TOPIC, subscription=SUBSCRIPTION)
+    run(tasks)
 
 
 if __name__ == '__main__':
     main()
-
