@@ -22,6 +22,22 @@ class PublishClient:
         data = data.encode('utf-8')
         self.service.publish(topic_path, data, **kwargs)
 
+    def create_topic(self, topic):
+        topic_path = self.service.topic_path(self.project, topic)
+        try:
+            self.service.create_topic(topic_path)
+        except AlreadyExists:
+            pass
+        logger.info('create: {}'.format(topic_path))
+
+    def delete_topic(self, topic):
+        topic_path = self.service.topic_path(self.project, topic)
+        try:
+            self.service.delete_topic(topic_path)
+            logger.info('delete: {}'.format(topic_path))
+        except:
+            pass
+
 
 class SubscribeClient:
     """Subscriberのラッパークラス."""
@@ -78,12 +94,15 @@ class SubscribeClient:
 @contextmanager
 def context(project, topic, subscription):
     """PubSubサブスクリプションのコンテキスト."""
-    client = SubscribeClient(project)
-    client.create_subscription(topic, subscription)
+    publisher = PublishClient(project)
+    publisher.create_topic(topic)
+    subscriber = SubscribeClient(project)
+    subscriber.create_subscription(topic, subscription)
     try:
-        yield client
+        yield subscriber
     finally:
-        client.delete_subscription(subscription)
+        subscriber.delete_subscription(subscription)
+        publisher.delete_topic(topic)
 
 
 def _spinner():

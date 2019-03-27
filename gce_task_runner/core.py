@@ -70,10 +70,11 @@ class Parameter:
         self.preemptible = preemptible
 
 
-def notify_completion(project=None, topic='manager', error=None):
+def notify_completion(project=None, topic=None, error=None):
     """タスクの完了を通知する."""
     try:
         project = project or _get_project()
+        topic = topic or _get_metadata('topic')
         _id = _get_metadata('instance-id')
         if _id:
             publisher = pubsub.PublishClient(project)
@@ -92,8 +93,15 @@ def notify_completion(project=None, topic='manager', error=None):
         pass
 
 
-def run(tasks):
+def run(tasks, topic='manager', subscription='manager', project=None):
     """タスクリストを実行する."""
+    if topic != 'manager' or subscription != 'manager' or project:
+        # TODO: 2.0.0でtask以外の引数を消す
+        import warnings
+        warnings.warn(("Optional args (topic, subscription, project) are deprecated."
+                       " These do not work now."
+                       ), DeprecationWarning)
+
     for task in tasks:
         error = _run_task(task)
         if error:
@@ -154,10 +162,10 @@ def _run_task(task):
     _INSTANCE_SIZE = task.parameter.instances
 
     # インスタンス作成中でも完了通知を受信できるようにしておく
-    _subscribe_in_background(task)
+    topic = _subscribe_in_background(task)
 
     # 100台ずつ並列でインスタンスの作成
-    async_run(range(task.parameter.instances), partial(_create_instance, task),
+    async_run(range(task.parameter.instances), partial(_create_instance, task, topic),
               concurrency=100, sleep=0)
 
     # 全台処理が終了するまで待機
@@ -171,7 +179,8 @@ def _run_task(task):
 def _subscribe_in_background(task):
     """バックグラウンドスレッドでGCEインスタンスからの完了通知を受け取る"""
     project = task.project
-    subscription = f"name-f{task.name.replace(' ', '-')}"
+    topic = f"task-{task.name.replace(' ', '-')}-{str(uuid.uuid4())}"
+    subscription = f"task-{task.name.replace(' ', '-')}"
 
     def callback(message):
         # インスタンスからの完了通知を受け取った時の処理
@@ -207,33 +216,32 @@ def _subscribe_in_background(task):
         return _INSTANCE_SIZE == 0
 
     thread = threading.Thread(target=_subscribe,
-                              args=(project, subscription, callback, stop_callback))
+                              args=(project, topic, subscription, callback, stop_callback))
     thread.start()
+    return topic
 
 
-def _subscribe(project, subscription, callback, stop_callback):
+def _subscribe(project, topic, subscription, callback, stop_callback):
     """サブスクライブの実行"""
-    subscriber = pubsub.SubscribeClient(project)
-    try:
-        subscriber.create_subscription('manager', subscription)
+    with pubsub.context(project, topic, subscription) as subscriber:
         subscriber.subscribe(subscription, callback, stop_callback)
-    finally:
-        subscriber.delete_subscription(subscription)
 
 
-def _create_instance(task, num):
+def _create_instance(task, topic, num):
     """GCEインスタンスを作成する
 
     作成されたインスタンスは _INSTANCES に追加される
     task.retry_quota_exceeded がTrueの場合はQUOTAエラー時はリトライする
     :param task: タスク
+    :param topic: GCEインスタンスが完了通知を飛ばすトピック
     :param num: タスク内でのそのインスタンスの通し番号
     """
     param = task.parameter
     _id = str(uuid.uuid4())
     metas = [
                 {'key': 'instance-id', 'value': _id},
-                {'key': 'instance-number', 'value': num}
+                {'key': 'instance-number', 'value': num},
+                {'key': 'topic', 'value': topic},
             ] + param.metas[num]
     # googleapiclientがImportErrorをたくさん出すので抑制
     logging.disable(logging.FATAL)
