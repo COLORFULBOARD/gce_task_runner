@@ -12,7 +12,7 @@
 行なっていることは主に次の2点です。
 
 * タスクの実行を管理するマネージャー
-  * 管理インスタンスにあたる。GCE関係ないのでローカルでも実行可能。
+  * 管理インスタンスにあたる。GCEで実行する必要はないのでローカルでも実行可能。
   * 起動スクリプトを指定したランナーにあたるインスタンスを起動する
   * ランナーからの`gce_task_runner.notify_completion()`をキャッチしてインスタンスを削除する
   * そのタスクのインスタンスが全て削除されたら、次のタスクに移動して繰り返す
@@ -24,16 +24,19 @@
   * 処理が終わったら`gce_task_runner.notify_completion()`を呼び出ことでマネージャーに削除される
       * エラーがあればそれを含めることも可能
 
-## 使い方
-
-### マネージャー
+## 試しに実行してみる
 
 [sample_manager.py](./sample_manager.py)を確認してください。  
-PubSubを使うので**あらかじめトピックを作成**しておいてください。作成したトピック名はスクリプト内で使います。
 
-### ランナー
+```shell
+# インストール
+$ git clone https://github.com/COLORFULBOARD/gce_task_runner.git
+$ cd gce_task_runner
+$ python3 -m venv venv
+$ . venv/bin/activate
+(venv) $ pip install -e .
 
-`gce_task_runner.notify_completion()`を呼び出せばOKです。  
-が、そのためにはこのライブラリをインストールしておく必要があります。  
-なのであらかじめDockerイメージを作って置いて、起動スクリプトではそれを実行するだけにしておくと楽です。
+# 実行
+(venv) $ python sample_manager.py
+```
 
