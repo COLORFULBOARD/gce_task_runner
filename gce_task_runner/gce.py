@@ -21,8 +21,10 @@ class Client:
 
     def __init__(self,
                  instance,
-                 startup_url,
-                 shutdown_url,
+                 startup_script,
+                 startup_script_url,
+                 shutdown_script,
+                 shutdown_script_url,
                  project,
                  zone,
                  machine_type,
@@ -35,8 +37,10 @@ class Client:
         self.service = build('compute', 'v1')
         # Required
         self.instance = instance
-        self.startup_url = startup_url
-        self.shutdown_url = shutdown_url
+        self.startup_script = startup_script
+        self.startup_script_url = startup_script_url
+        self.shutdown_script = shutdown_script
+        self.shutdown_script_url = shutdown_script_url
         self.project = project
         # Optional
         self.zone = zone
@@ -62,8 +66,7 @@ class Client:
                 zone=self.zone,
                 body=self.config,
             ).execute()
-        except HttpError as e:
-            logger.warning('error: {}'.format(e))
+        except HttpError:
             raise
 
     def delete(self):
@@ -94,15 +97,40 @@ class Client:
     def config(self):
         """APIパラメータ."""
         items = [
-            {
-                "key": "startup-script-url",
-                "value": self.startup_url,
-            },
-            {
-                "key": "shutdown-script-url",
-                "value": self.shutdown_url,
-            }
         ]
+        if self.startup_script_url:
+            items.append(
+                {
+                    "key": "startup-script-url",
+                    "value": self.startup_script_url,
+                }
+            )
+        elif self.startup_script:
+            items.append(
+                {
+                    "key": "startup-script",
+                    "value": self.startup_script,
+                }
+            )
+        else:
+            # 起動スクリプトは必ず必要
+            raise ValueError('Set only one of startup_script and startup_script_url')
+
+        if self.shutdown_script_url:
+            items.append(
+                {
+                    "key": "shutdown-script-url",
+                    "value": self.shutdown_script_url,
+                }
+            )
+        elif self.shutdown_script:
+            items.append(
+                {
+                    "key": "shutdown-script",
+                    "value": self.shutdown_script,
+                }
+            )
+
         items.extend(self.metas)
         _config = {
             "name": self.instance,
@@ -167,7 +195,7 @@ class Client:
 
     def wait_for_operation(self, operation):
         """ジョブの待機. ポーリングによって実現."""
-        logger.info('Waiting for operation to finish...')
+        logger.debug(f'Waiting for {operation} to finish...')
         while True:
             result = self.service.zoneOperations().get(
                 project=self.project,
@@ -175,9 +203,8 @@ class Client:
                 operation=operation).execute()
 
             if result['status'] == 'DONE':
-                logger.info("done.")
+                logger.debug("done.")
                 if 'error' in result:
-                    logger.warning('{}'.format(result['error']))
                     raise Exception(result['error'])
                 return result
             time.sleep(1)

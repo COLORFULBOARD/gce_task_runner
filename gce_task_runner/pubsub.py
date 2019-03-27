@@ -22,6 +22,22 @@ class PublishClient:
         data = data.encode('utf-8')
         self.service.publish(topic_path, data, **kwargs)
 
+    def create_topic(self, topic):
+        topic_path = self.service.topic_path(self.project, topic)
+        try:
+            self.service.create_topic(topic_path)
+        except AlreadyExists:
+            pass
+        logger.info('create: {}'.format(topic_path))
+
+    def delete_topic(self, topic):
+        topic_path = self.service.topic_path(self.project, topic)
+        try:
+            self.service.delete_topic(topic_path)
+            logger.info('delete: {}'.format(topic_path))
+        except:
+            pass
+
 
 class SubscribeClient:
     """Subscriberのラッパークラス."""
@@ -35,8 +51,9 @@ class SubscribeClient:
         path = self.service.subscription_path(self.project, subscription)
         return self.service.subscribe(path, callback)
 
-    def subscribe(self, subscription, callback, check, sleep=1):
+    def subscribe(self, subscription, callback, stop_callback, sleep=1):
         """通知の購読."""
+
         def _callback(message):
             r = callback(message)
             message.ack()
@@ -49,16 +66,19 @@ class SubscribeClient:
                 sys.stdout.flush()
                 time.sleep(sleep)
                 sys.stdout.write('\b')
-                if not check():
+                if stop_callback():
                     break
         finally:
             future.cancel()
 
     def delete_subscription(self, subscription):
         """サブスクリプションの削除."""
-        path = self.service.subscription_path(self.project, subscription)
-        self.service.delete_subscription(path)
-        logger.info('delete: {}'.format(path))
+        try:
+            path = self.service.subscription_path(self.project, subscription)
+            self.service.delete_subscription(path)
+            logger.info('delete: {}'.format(path))
+        except:
+            pass
 
     def create_subscription(self, topic, subscription):
         """新しいサブスクリプションの作成."""
@@ -74,12 +94,15 @@ class SubscribeClient:
 @contextmanager
 def context(project, topic, subscription):
     """PubSubサブスクリプションのコンテキスト."""
-    client = SubscribeClient(project)
-    client.create_subscription(topic, subscription)
+    publisher = PublishClient(project)
+    publisher.create_topic(topic)
+    subscriber = SubscribeClient(project)
+    subscriber.create_subscription(topic, subscription)
     try:
-        yield client
+        yield subscriber
     finally:
-        client.delete_subscription(subscription)
+        subscriber.delete_subscription(subscription)
+        publisher.delete_topic(topic)
 
 
 def _spinner():
