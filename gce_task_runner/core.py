@@ -77,7 +77,7 @@ def notify_completion(project=None, topic=None, error=None):
         project = project or _get_project()
         topic = topic or _get_metadata('topic')
         _id = _get_metadata('instance-id')
-        if _id:
+        if topic and _id:
             publisher = pubsub.PublishClient(project)
             try:
                 if error:
@@ -107,6 +107,7 @@ def run(tasks, topic='manager', subscription='manager', project=None):
         error = _run_task(task)
         if error:
             return task.name, error
+    return None
 
 
 def _get_metadata(key):
