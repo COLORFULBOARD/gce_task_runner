@@ -190,7 +190,6 @@ def _subscribe_in_background(task):
                 logger.info('instance {} is timeout!!!'.format(_id))
                 instance.delete()
                 logger.info('instance {} is terminated'.format(_id))
-        logger.info(f'get_remains_count: {store.get_remains_count()}')
         return store.get_remains_count() == 0
 
     thread = threading.Thread(target=_subscribe,
