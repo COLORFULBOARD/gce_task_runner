@@ -7,21 +7,14 @@ from functools import partial
 import requests
 from asynconsumer import async_run
 
-from . import gce, pubsub
+from . import gce, pubsub, store
 
 logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
 
-_LOCK = threading.Lock()
-
-# 稼働中GCEインスタンスの辞書。{_id: (instance, タイムリミット)}
-_INSTANCES = {}
-
-# 未終了GCEインスタンス数
-_INSTANCE_SIZE = 0
-
 # GCEインスタンスから通知されたエラー
 _ERRORS = []
+_IS_TASK_COMPLETED = False
 
 
 class Task:
@@ -116,26 +109,6 @@ def run(tasks, topic='manager', subscription='manager', project=None):
             return task.name, error
 
 
-def _add_instance(_id, instance, timeout=0):
-    """_INSTANCESにGCEインスタンスを格納する"""
-    with _LOCK:
-        limit = timeout + time.time() if timeout else None
-        _INSTANCES[_id] = (instance, limit)
-
-
-def _pop_instance(_id):
-    """_INSTANCESに格納されたGCEインスタンスを取り出す"""
-    with _LOCK:
-        return _INSTANCES.pop(_id, (None, None))
-
-
-def _get_time_overs():
-    """_INSTANCESに格納された期限切れGCEインスタンスを全て取り出す"""
-    with _LOCK:
-        ids = [_id for _id, (_, limit) in _INSTANCES.items() if limit and limit < time.time()]
-        return [(_id, _INSTANCES.pop(_id)) for _id in ids]
-
-
 def _get_metadata(key):
     try:
         res = requests.get(
@@ -164,10 +137,9 @@ def _get_project():
 
 def _run_task(task):
     """個別のタスクを実行する"""
+    global _IS_TASK_COMPLETED
     logger.info('start to {}'.format(task.name))
-
-    global _INSTANCE_SIZE
-    _INSTANCE_SIZE = task.parameter.instances
+    store.initialize(task.parameter.instances)
 
     # インスタンス作成中でも完了通知を受信できるようにしておく
     topic = _subscribe_in_background(task)
@@ -177,10 +149,11 @@ def _run_task(task):
               concurrency=100, sleep=0)
 
     # 全台処理が終了するまで待機
-    while _INSTANCE_SIZE > 0:
+    while not _IS_TASK_COMPLETED:
         time.sleep(5)
 
     logger.info('finish to {}'.format(task.name))
+    _IS_TASK_COMPLETED = False
     return _ERRORS
 
 
@@ -192,9 +165,8 @@ def _subscribe_in_background(task):
 
     def callback(message):
         # インスタンスからの完了通知を受け取った時の処理
-        global _INSTANCE_SIZE
         instance_id = message.data.decode('utf-8')
-        instance, _ = _pop_instance(instance_id)
+        instance, _ = store.pop(instance_id)
         if instance:
             if 'error' in message.attributes:
                 # errorメッセージが含まれていたらエラーとして処理する、それ以外は正常終了扱い
@@ -209,19 +181,17 @@ def _subscribe_in_background(task):
             # インスタンスの削除
             instance.delete()
             logger.info('instance {} is terminated'.format(instance_id))
-            _INSTANCE_SIZE -= 1
 
     def stop_callback():
         # Trueを返すとPubSubの監視を終了する
-        global _INSTANCE_SIZE
         if task.timeout:
             # 時間切れのインスタンスを削除
-            for _id, (instance, _) in _get_time_overs():
+            for _id, (instance, _) in store.get_time_overs():
                 logger.info('instance {} is timeout!!!'.format(_id))
                 instance.delete()
                 logger.info('instance {} is terminated'.format(_id))
-                _INSTANCE_SIZE -= 1
-        return _INSTANCE_SIZE == 0
+        logger.info(f'get_remains_count: {store.get_remains_count()}')
+        return store.get_remains_count() == 0
 
     thread = threading.Thread(target=_subscribe,
                               args=(project, topic, subscription, callback, stop_callback))
@@ -231,14 +201,15 @@ def _subscribe_in_background(task):
 
 def _subscribe(project, topic, subscription, callback, stop_callback):
     """サブスクライブの実行"""
+    global _IS_TASK_COMPLETED
     with pubsub.context(project, topic, subscription) as subscriber:
         subscriber.subscribe(subscription, callback, stop_callback)
+    _IS_TASK_COMPLETED = True
 
 
 def _create_instance(task, topic, num):
     """GCEインスタンスを作成する
 
-    作成されたインスタンスは _INSTANCES に追加される
     task.retry_quota_exceeded がTrueの場合はQUOTAエラー時はリトライする
     :param task: タスク
     :param topic: GCEインスタンスが完了通知を飛ばすトピック
@@ -284,5 +255,5 @@ def _create_instance(task, topic, num):
                 # リトライ不要であればエラーにして終了
                 raise
         else:
-            _add_instance(_id, instance, task.timeout)
+            store.register(_id, instance, task.timeout)
             break
