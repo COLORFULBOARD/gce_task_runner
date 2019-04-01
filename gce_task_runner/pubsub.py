@@ -28,7 +28,7 @@ class PublishClient:
             self.service.create_topic(topic_path)
         except AlreadyExists:
             pass
-        logger.info('create: {}'.format(topic_path))
+        return topic_path
 
     def delete_topic(self, topic):
         topic_path = self.service.topic_path(self.project, topic)
@@ -67,6 +67,7 @@ class SubscribeClient:
                 time.sleep(sleep)
                 sys.stdout.write('\b')
                 if stop_callback():
+                    logger.info('stop subscribing')
                     break
         finally:
             future.cancel()
@@ -80,24 +81,24 @@ class SubscribeClient:
         except:
             pass
 
-    def create_subscription(self, topic, subscription):
+    def create_subscription(self, topic_path, subscription):
         """新しいサブスクリプションの作成."""
         path = self.service.subscription_path(self.project, subscription)
-        topic_path = self.service.topic_path(self.project, topic)
         try:
             self.service.create_subscription(path, topic_path)
         except AlreadyExists:
             pass
-        logger.info('create: {}'.format(path))
+        return path
 
 
 @contextmanager
 def context(project, topic, subscription):
     """PubSubサブスクリプションのコンテキスト."""
     publisher = PublishClient(project)
-    publisher.create_topic(topic)
+    topic_path = publisher.create_topic(topic)
     subscriber = SubscribeClient(project)
-    subscriber.create_subscription(topic, subscription)
+    subscribe_path = subscriber.create_subscription(topic_path, subscription)
+    logger.info('create: {} ( {} )'.format(subscribe_path, topic_path))
     try:
         yield subscriber
     finally:
