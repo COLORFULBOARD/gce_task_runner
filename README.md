@@ -40,3 +40,7 @@ $ . venv/bin/activate
 (venv) $ python sample_manager.py
 ```
 
+## Unit Test
+```
+(venv) python -m unittest -v
+```
