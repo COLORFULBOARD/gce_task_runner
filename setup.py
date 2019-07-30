@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 def main():
     setup(
         name='gce-task-runner',
-        version='1.2.1',
+        version='1.2.2',
         author='rei.suyama',
         author_email='rei.suyama@sensy.ai',
         maintainer='rei.suyama',
