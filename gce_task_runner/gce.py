@@ -33,7 +33,8 @@ class Client:
                  metas,
                  gpu_info,
                  minCpuPlatform,
-                 preemptible):  # noqa: D107
+                 preemptible,
+                 labels):  # noqa: D107
         self.service = build('compute', 'v1')
         # Required
         self.instance = instance
@@ -52,6 +53,7 @@ class Client:
         self.minCpuPlatform = minCpuPlatform
         self.preemptible = preemptible
         self.region = self.zone[:-2]
+        self.labels = labels
 
     def create(self):
         """インスタンス作成."""
@@ -191,6 +193,8 @@ class Client:
                 }
             ]
             _config["scheduling"]["onHostMaintenance"] = "TERMINATE"
+        if self.labels:
+            _config["labels"] = self.labels
         return _config
 
     def wait_for_operation(self, operation):

@@ -50,7 +50,8 @@ class Parameter:
                  metas=None,
                  gpu_info=None,
                  minCpuPlatform=None,
-                 preemptible=False):  # noqa: D107
+                 preemptible=False,
+                 labels=None):  # noqa: D107
 
         if len(list(filter(lambda x: bool(x), (startup_script, startup_script_url)))) != 1:
             raise ValueError('Set only one of startup_script and startup_script_url')
@@ -69,6 +70,7 @@ class Parameter:
         self.gpu_info = gpu_info
         self.minCpuPlatform = minCpuPlatform
         self.preemptible = preemptible
+        self.labels = labels or {}
 
 
 def notify_completion(project=None, topic=None, error=None):
@@ -239,6 +241,7 @@ def _create_instance(task, topic, num):
         gpu_info=param.gpu_info,
         minCpuPlatform=param.minCpuPlatform,
         preemptible=param.preemptible,
+        labels=param.labels,
     )
     logging.disable(logging.NOTSET)
     while True:
