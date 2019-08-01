@@ -70,7 +70,7 @@ class Parameter:
         self.gpu_info = gpu_info
         self.minCpuPlatform = minCpuPlatform
         self.preemptible = preemptible
-        self.labels = {} if labels is None else labels
+        self.labels = labels or {}
 
 
 def notify_completion(project=None, topic=None, error=None):
