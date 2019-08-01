@@ -51,7 +51,7 @@ class Parameter:
                  gpu_info=None,
                  minCpuPlatform=None,
                  preemptible=False,
-                 labels={}):  # noqa: D107
+                 labels=None):  # noqa: D107
 
         if len(list(filter(lambda x: bool(x), (startup_script, startup_script_url)))) != 1:
             raise ValueError('Set only one of startup_script and startup_script_url')
@@ -70,7 +70,7 @@ class Parameter:
         self.gpu_info = gpu_info
         self.minCpuPlatform = minCpuPlatform
         self.preemptible = preemptible
-        self.labels = labels
+        self.labels = {} if labels is None else labels
 
 
 def notify_completion(project=None, topic=None, error=None):
