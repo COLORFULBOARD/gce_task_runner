@@ -51,7 +51,7 @@ class Parameter:
                  gpu_info=None,
                  minCpuPlatform=None,
                  preemptible=False,
-                 labels=None):  # noqa: D107
+                 labels={}):  # noqa: D107
 
         if len(list(filter(lambda x: bool(x), (startup_script, startup_script_url)))) != 1:
             raise ValueError('Set only one of startup_script and startup_script_url')
