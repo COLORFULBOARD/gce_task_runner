@@ -2,7 +2,7 @@ import logging
 
 from gce_task_runner import Parameter, Task, run
 
-PROJECT_ID = "acajou323"
+PROJECT_ID = "<YOUR GCP PROJECT ID>"
 
 root = logging.getLogger()
 root.addHandler(logging.StreamHandler())
@@ -12,7 +12,7 @@ root.setLevel(logging.INFO)
 def main():
     tasks = (
         Task(
-            name="task 3",
+            name="task 1",
             project=PROJECT_ID,
             parameter=Parameter(
                 instance_name="instance-1-{}",
@@ -25,7 +25,6 @@ def main():
                 """,
                 instances=3,
                 image="projects/cos-cloud/global/images/cos-69-10895-299-0",
-                labels={'test': 'a'}
             ),
         ),
         Task(
